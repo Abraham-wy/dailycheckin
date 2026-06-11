@@ -87,40 +87,34 @@ export async function fillFormWithPlaywright(
       await page.waitForTimeout(300);
     }
 
-    // Click submit button
+    // Click submit and wait for the submitformview API response
     const submitBtn = page.locator('button:has-text("提交")').first();
 
-    // Watch for submit API response
-    let submitSucceeded = false;
-    page.on('response', (resp) => {
-      if (resp.url().includes('submitformview') && resp.status() === 200) {
-        submitSucceeded = true;
-      }
-    });
+    // Start waiting for submit API response before clicking
+    const submitPromise = page.waitForResponse(
+      r => r.url().includes('submitformview') && r.status() === 200,
+      { timeout: 10000 }
+    ).then(r => true).catch(() => false);
 
     await submitBtn.click();
-    await page.waitForTimeout(5000);
+    const submitSucceeded = await submitPromise;
 
-    // Check for success
-    const pageText = (await page.textContent('body')) || '';
-    const submitted = submitSucceeded ||
-      pageText.includes('已提交') ||
-      pageText.includes('提交成功') ||
-      pageText.includes('成功提交');
-
-    if (!submitted) {
-      // Check if form is still there (error case)
-      const stillVisible = await page.locator('.text-editor[contenteditable="true"]').first().isVisible().catch(() => false);
-      if (stillVisible) {
-        return {
-          success: false,
-          error: 'Form submission may have failed — form still visible after submit',
-          errorStep: 'submit',
-        };
-      }
+    if (submitSucceeded) {
+      return { success: true };
     }
 
-    return { success: true };
+    // Fallback: check page content for success indicators
+    await page.waitForTimeout(3000);
+    const pageText = (await page.textContent('body')) || '';
+    if (pageText.includes('已提交') || pageText.includes('提交成功')) {
+      return { success: true };
+    }
+
+    return {
+      success: false,
+      error: 'Submit failed: API not detected and page does not show success',
+      errorStep: 'submit',
+    };
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
     let screenshot: Buffer | undefined;
