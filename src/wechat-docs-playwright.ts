@@ -62,7 +62,7 @@ export async function fillFormWithPlaywright(
 
   try {
     // Navigate to form
-    await page.goto(FORM_URL, { waitUntil: 'networkidle', timeout: 30000 });
+    await page.goto(FORM_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
     // Wait for the smartsheet to render
     await page.waitForTimeout(3000);
@@ -214,7 +214,7 @@ export async function captureApiEndpoints(cookieJson: string): Promise<string[]>
       }
     });
 
-    await page.goto(FORM_URL, { waitUntil: 'networkidle', timeout: 30000 });
+    await page.goto(FORM_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForTimeout(3000);
 
     await context.close();
