@@ -155,9 +155,79 @@ async function handleMessage(sb: SupabaseClient, token: string, baseUrl: string,
     return;
   }
 
+  // ---- "立即打卡" ----
+  if (/^立即打卡/.test(cmd)) {
+    await sendMessage(token, userId, '正在触发打卡…', contextToken, baseUrl);
+
+    const ghToken = process.env.GITHUB_TOKEN;
+    if (!ghToken) {
+      await sendMessage(token, userId, '未配置 GITHUB_TOKEN，无法触发打卡', contextToken, baseUrl);
+      return;
+    }
+
+    try {
+      // Trigger GitHub Actions workflow
+      const resp = await fetch(
+        'https://api.github.com/repos/Abraham-wy/dailycheckin/actions/workflows/daily-checkin.yml/dispatches',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${ghToken}`,
+            Accept: 'application/vnd.github+json',
+            'X-GitHub-Api-Version': '2022-11-28',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ ref: 'main', inputs: { dry_run: false } }),
+        }
+      );
+
+      if (resp.status === 204) {
+        await sendMessage(token, userId, '打卡已触发，正在等待结果（最多等待 3 分钟）…', contextToken, baseUrl);
+
+        // Poll for result
+        const startTime = Date.now();
+        const timeout = 3 * 60 * 1000; // 3 minutes
+        const today = todayCST();
+        let result: any = null;
+
+        while (Date.now() - startTime < timeout) {
+          await new Promise(r => setTimeout(r, 15000)); // Wait 15s
+          const { data: log } = await sb.from('checkin_logs').select('*')
+            .eq('checkin_date', today)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (log && log.created_at && new Date(log.created_at).getTime() > startTime) {
+            result = log;
+            break;
+          }
+        }
+
+        if (result) {
+          if (result.status === 'success') {
+            await sendMessage(token, userId, `即时打卡成功 ✓\n俯卧撑: ${result.pushups}\n睡觉: ${result.sleep_time}\n今日任务: ${result.task_completion || '无'}\n明日计划: ${result.tomorrow_plan || '无'}`, contextToken, baseUrl);
+          } else {
+            await sendMessage(token, userId, `即时打卡失败 ✗\n错误: ${result.error_message}\n步骤: ${result.error_step}`, contextToken, baseUrl);
+          }
+        } else {
+          await sendMessage(token, userId, '打卡超时（3分钟），请稍后发送"今日打卡结果"查询', contextToken, baseUrl);
+        }
+      } else {
+        const text = await resp.text();
+        await sendMessage(token, userId, `触发失败: HTTP ${resp.status}`, contextToken, baseUrl);
+        console.error('[INSTANT] Trigger failed:', text);
+      }
+    } catch (err) {
+      console.error('[INSTANT] Error:', err);
+      await sendMessage(token, userId, '触发打卡时出错，请稍后重试', contextToken, baseUrl);
+    }
+    return;
+  }
+
   // ---- "帮助" ----
   if (/^(?:帮助|help)$/i.test(cmd)) {
-    await sendMessage(token, userId, '可用命令：\n• 明日计划 <内容>\n• 今日打卡结果\n• 历史记录 [N]\n• 帮助', contextToken, baseUrl);
+    await sendMessage(token, userId, '可用命令：\n• 明日计划 <内容>\n• 立即打卡\n• 今日打卡结果\n• 历史记录 [N]\n• 帮助', contextToken, baseUrl);
     return;
   }
 

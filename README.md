@@ -77,6 +77,7 @@ Day 4: 今日任务 = "完成C、D" (沿用)
 | 命令 | 说明 | 示例 |
 |------|------|------|
 | `明日计划 <内容>` | 填写明日计划 | `明日计划 完成项目A、修复Bug B` |
+| `立即打卡` | 即时触发打卡并推送结果 | `立即打卡` |
 | `今日打卡结果` | 查看今日打卡结果 | `今日打卡结果` |
 | `历史记录 [N]` | 查看最近N天记录 | `历史记录 7` |
 | `帮助` | 显示帮助信息 | `帮助` |
@@ -192,6 +193,7 @@ cat ~/.claude/channels/wechat/default/account.json
 | `BOT_BASE_URL` | `https://ilinkai.weixin.qq.com` | 同上 → `baseUrl` |
 | `SUPABASE_URL` | `https://xxxxx.supabase.co` | Supabase 控制台 |
 | `SUPABASE_SERVICE_KEY` | `eyJhbGciOi...` | Supabase 控制台 → service_role |
+| `GITHUB_TOKEN` | `gho_xxx...` / `github_pat_xxx...` | GitHub → Settings → Developer settings → PAT，需 `workflow` 权限 |
 
 5. 部署 → 日志中出现 `[BOOT] Daily Check-in Bot starting` 即成功
 6. 微信发送 **帮助** 测试
