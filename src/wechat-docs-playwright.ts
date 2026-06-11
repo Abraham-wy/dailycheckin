@@ -89,12 +89,24 @@ export async function fillFormWithPlaywright(
 
     // Click submit button
     const submitBtn = page.locator('button:has-text("提交")').first();
+
+    // Watch for submit API response
+    let submitSucceeded = false;
+    page.on('response', (resp) => {
+      if (resp.url().includes('submitformview') && resp.status() === 200) {
+        submitSucceeded = true;
+      }
+    });
+
     await submitBtn.click();
-    await page.waitForTimeout(3000);
+    await page.waitForTimeout(5000);
 
     // Check for success
     const pageText = (await page.textContent('body')) || '';
-    const submitted = pageText.includes('提交成功') || pageText.includes('成功');
+    const submitted = submitSucceeded ||
+      pageText.includes('已提交') ||
+      pageText.includes('提交成功') ||
+      pageText.includes('成功提交');
 
     if (!submitted) {
       // Check if form is still there (error case)
