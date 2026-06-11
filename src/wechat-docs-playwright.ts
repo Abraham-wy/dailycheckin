@@ -80,10 +80,12 @@ export async function fillFormWithPlaywright(
       data.tomorrowPlan,
     ];
 
+    // Fill via triple-click to select all, then type
     for (let i = 0; i < 4; i++) {
-      await editors.nth(i).click();
-      await page.waitForTimeout(300);
-      await editors.nth(i).fill(values[i]);
+      await editors.nth(i).click({ clickCount: 3 }); // Select all existing text
+      await page.waitForTimeout(200);
+      await page.keyboard.press('Backspace'); // Clear
+      await page.keyboard.type(values[i], { delay: 10 });
       await page.waitForTimeout(300);
     }
 
