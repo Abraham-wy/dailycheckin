@@ -129,7 +129,8 @@ async function handleMessage(sb: SupabaseClient, token: string, baseUrl: string,
 
   // ---- "今日打卡结果" / "打卡结果" ----
   if (/^(?:今日)?打卡结果|今日结果/.test(cmd)) {
-    const { data: log } = await sb.from('checkin_logs').select('*').eq('checkin_date', todayCST()).order('created_at', { ascending: false }).limit(1).maybeSingle();
+    const { data: logs } = await sb.from('checkin_logs').select('*').eq('checkin_date', todayCST()).order('created_at', { ascending: false }).limit(1);
+    const log = logs?.[0] || null;
     if (!log) {
       await sendMessage(token, userId, '今日尚未打卡，将在 22:30-23:50 自动执行', contextToken, baseUrl);
     } else if (log.status === 'success') {
@@ -167,8 +168,9 @@ async function handleMessage(sb: SupabaseClient, token: string, baseUrl: string,
       const today = todayCST();
 
       // Check if already succeeded today
-      const { data: existing } = await sb.from('checkin_logs').select('*')
-        .eq('checkin_date', today).eq('status', 'success').maybeSingle();
+      const { data: existingRows } = await sb.from('checkin_logs').select('*')
+        .eq('checkin_date', today).eq('status', 'success').limit(1);
+      const existing = existingRows?.[0] || null;
       if (existing) {
         await sendMessage(token, userId, `今日已打卡成功，无需重复打卡 ✓\n俯卧撑: ${existing.pushups}\n睡觉: ${existing.sleep_time}\n今日任务: ${existing.task_completion || '无'}\n明日计划: ${existing.tomorrow_plan || '无'}`, contextToken, baseUrl);
         return;
@@ -177,10 +179,9 @@ async function handleMessage(sb: SupabaseClient, token: string, baseUrl: string,
       await sendMessage(token, userId, '正在触发打卡…', contextToken, baseUrl);
 
       // Save current latest log id so we detect the new one
-      const { data: prevLog } = await sb.from('checkin_logs').select('id')
-        .eq('checkin_date', today).order('created_at', { ascending: false })
-        .limit(1).maybeSingle();
-      const prevId = prevLog?.id || '';
+      const { data: prevRows } = await sb.from('checkin_logs').select('id')
+        .eq('checkin_date', today).order('created_at', { ascending: false }).limit(1);
+      const prevId = prevRows?.[0]?.id || '';
 
       // Trigger GitHub Actions workflow
       const resp = await fetch(
@@ -202,9 +203,9 @@ async function handleMessage(sb: SupabaseClient, token: string, baseUrl: string,
         let result: any = null;
         for (let i = 0; i < 9; i++) {
           await new Promise(r => setTimeout(r, 10000));
-          const { data: log } = await sb.from('checkin_logs').select('*')
-            .eq('checkin_date', today).order('created_at', { ascending: false })
-            .limit(1).maybeSingle();
+          const { data: pollRows } = await sb.from('checkin_logs').select('*')
+            .eq('checkin_date', today).order('created_at', { ascending: false }).limit(1);
+          const log = pollRows?.[0] || null;
           if (log && log.id !== prevId && log.status !== 'pending') { result = log; break; }
         }
         if (result) {
@@ -271,9 +272,10 @@ async function runCron(sb: SupabaseClient) {
 
   // 21:00-21:10 CST: Check if tomorrow's plan exists, queue reminder
   if (now >= '21:00' && now <= '21:10') {
-    const { data: existing } = await sb.from('reminder_logs').select('*').eq('reminder_date', today).maybeSingle();
-    if (!existing) {
-      const { data: plan } = await sb.from('daily_plans').select('*').eq('plan_date', tomorrow).maybeSingle();
+    const { data: remRows } = await sb.from('reminder_logs').select('*').eq('reminder_date', today).limit(1);
+    if (!remRows || remRows.length === 0) {
+      const { data: planRows } = await sb.from('daily_plans').select('*').eq('plan_date', tomorrow).limit(1);
+      const plan = planRows?.[0] || null;
       const planSet = !!(plan && plan.content);
       await sb.from('reminder_logs').upsert({ reminder_date: today, plan_was_set: planSet, sent_at: new Date().toISOString() });
       if (!planSet) {
@@ -285,9 +287,10 @@ async function runCron(sb: SupabaseClient) {
 
   // 23:55-23:59 CST: Check check-in result, push to users
   if (now >= '23:55' && now <= '23:59') {
-    const { data: existing } = await sb.from('pending_notifications').select('*').like('content', '%今日打卡%').eq('delivered', false).gte('created_at', today).maybeSingle();
-    if (!existing) {
-      const { data: log } = await sb.from('checkin_logs').select('*').eq('checkin_date', today).order('created_at', { ascending: false }).limit(1).maybeSingle();
+    const { data: notifRows } = await sb.from('pending_notifications').select('*').like('content', '%今日打卡%').eq('delivered', false).gte('created_at', today).limit(1);
+    if (!notifRows || notifRows.length === 0) {
+      const { data: checkRows } = await sb.from('checkin_logs').select('*').eq('checkin_date', today).order('created_at', { ascending: false }).limit(1);
+      const log = checkRows?.[0] || null;
       if (log) {
         if (log.status === 'success') {
           await pushToAllUsers(sb, `今日打卡成功 ✓ | 俯卧撑:${log.pushups} | 睡觉:${log.sleep_time} | 今日任务:${log.task_completion || '无'} | 明日计划:${log.tomorrow_plan || '无'}`);
