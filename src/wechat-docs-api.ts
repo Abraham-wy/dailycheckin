@@ -1,18 +1,30 @@
-// Direct API client for WeChat Docs smartsheet
-// This module is a stub — fill in after network traffic inspection
+// Direct API client for WeChat Docs smartsheet form submission
+// Uses the submitformview REST API — much more reliable than Playwright DOM interaction
 
 import type { WeChatDocCookies } from './types.js';
 
-const BASE_URL = 'https://doc.weixin.qq.com';
-
-export interface FormData {
+interface FormData {
   pushups: number;
   sleepTime: string;
   taskCompletion: string;
   tomorrowPlan: string;
 }
 
-// Parse cookie JSON to Cookie header string
+const SUBMIT_URL = 'https://doc.weixin.qq.com/smartsheetservice/submitformview';
+const FORM_URL =
+  'https://doc.weixin.qq.com/smartsheet/s3_Af8ABwbxAJcCNyvQQUKfMTAe6Mal0?scode=AJEAqAfZADcj4Z3dBeAW8AnwacAGY&tab=q979lj&viewId=vD00wZ';
+
+// Static form metadata
+const DOC_ID = 's3_Af8ABwbxAJcCNyvQQUKfMTAe6Mal0';
+const SUB_ID = 'q979lj';
+const VIEW_ID = 'vD00wZ';
+
+// Field IDs (from form inspection)
+const FIELD_PUSHUP = 'fzSueb';
+const FIELD_SLEEP = 'fDpQ7o';
+const FIELD_TASK = 'fp1TPo';
+const FIELD_PLAN = 'fz3vww';
+
 function toCookieHeader(cookieJson: string): string {
   const cookies: WeChatDocCookies = JSON.parse(cookieJson);
   return Object.entries(cookies)
@@ -20,76 +32,89 @@ function toCookieHeader(cookieJson: string): string {
     .join('; ');
 }
 
-// Make an authenticated API request
-async function apiRequest(
-  cookieJson: string,
-  path: string,
-  method: string,
-  body?: unknown
-): Promise<Response> {
-  const headers: Record<string, string> = {
-    Cookie: toCookieHeader(cookieJson),
-    'Content-Type': 'application/json',
-  };
-
-  // Extract xsrf token from cookies if present
+function getCookie(cookieJson: string, name: string): string {
   const cookies: WeChatDocCookies = JSON.parse(cookieJson);
-  const xsrf = cookies['xsrf'] || cookies['XSRF-TOKEN'];
-  if (xsrf) {
-    headers['X-XSRF-TOKEN'] = xsrf;
-  }
-
-  return fetch(`${BASE_URL}${path}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  return cookies[name] || '';
 }
 
-// Validate that cookies are still valid
-export async function validateCookies(cookieJson: string): Promise<boolean> {
-  try {
-    const res = await apiRequest(
-      cookieJson,
-      '/smartsheet/api/v1/metadata', // Example endpoint — update after discovery
-      'GET'
-    );
-    return res.status === 200;
-  } catch {
-    return false;
-  }
+// Build cell JSON in the format expected by the API
+function buildCellStr(text: string): string {
+  return JSON.stringify([
+    {
+      text,
+      type: 'text',
+      format: { bold: false, italic: false, underline: false, strikeThrough: false },
+    },
+  ]);
 }
 
-// Submit a row to the smartsheet via API
-// TODO: Fill in the actual endpoint and body format after API discovery
-export async function submitRowViaApi(
+// Submit the form via direct API call
+export async function submitFormViaApi(
   cookieJson: string,
   data: FormData
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const res = await apiRequest(
-      cookieJson,
-      '/smartsheet/api/v1/rows', // Example — update after discovery
-      'POST',
-      {
-        // Example body — update after discovery
-        sheet_id: 's3_Af8ABwbxAJcCNyvQQUKfMTAe6Mal0',
-        fields: {
-          pushups: data.pushups,
-          sleep_time: data.sleepTime,
-          task_completion: data.taskCompletion,
-          tomorrow_plan: data.tomorrowPlan,
-        },
-      }
-    );
+    const sid = getCookie(cookieJson, 'wedoc_sid');
+    const xsrf = getCookie(cookieJson, 'TOK'); // xsrf = TOK cookie value
 
-    if (res.ok) {
+    if (!sid || !xsrf) {
+      return { success: false, error: 'Missing required cookies: wedoc_sid or TOK' };
+    }
+
+    const url = `${SUBMIT_URL}?sid=${encodeURIComponent(sid)}&wedoc_xsrf=1&xsrf=${encodeURIComponent(xsrf)}`;
+
+    const body = JSON.stringify({
+      answer: {
+        record: [
+          { fieldId: FIELD_PUSHUP, cellStr: buildCellStr(String(data.pushups)), fieldType: 1 },
+          { fieldId: FIELD_SLEEP, cellStr: buildCellStr(data.sleepTime), fieldType: 1 },
+          { fieldId: FIELD_TASK, cellStr: buildCellStr(data.taskCompletion), fieldType: 1 },
+          { fieldId: FIELD_PLAN, cellStr: buildCellStr(data.tomorrowPlan), fieldType: 1 },
+        ],
+      },
+      sub_id: SUB_ID,
+      view_id: VIEW_ID,
+      doc_id: DOC_ID,
+    });
+
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: toCookieHeader(cookieJson),
+        Referer: FORM_URL,
+        Accept: 'application/json, text/plain, */*',
+      },
+      body,
+    });
+
+    if (resp.ok) {
+      const result = await resp.json().catch(() => ({}));
+      console.log('API submit response:', JSON.stringify(result).slice(0, 200));
       return { success: true };
     }
 
-    const text = await res.text();
-    return { success: false, error: `API returned ${res.status}: ${text}` };
+    const text = await resp.text();
+    return { success: false, error: `API returned ${resp.status}: ${text.slice(0, 200)}` };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+// Validate cookies by fetching the form page
+export async function validateCookies(cookieJson: string): Promise<boolean> {
+  try {
+    const resp = await fetch(FORM_URL, {
+      method: 'GET',
+      headers: {
+        Cookie: toCookieHeader(cookieJson),
+        'User-Agent':
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+      },
+      redirect: 'manual',
+    });
+    return resp.status === 200 && !resp.headers.get('location')?.includes('login');
+  } catch {
+    return false;
   }
 }

@@ -1,6 +1,6 @@
-// Facade module: tries API first, falls back to Playwright
+// Facade module: tries direct API first, falls back to Playwright
 
-import { validateCookies as validateCookiesApi, submitRowViaApi } from './wechat-docs-api.js';
+import { validateCookies as validateCookiesApi, submitFormViaApi } from './wechat-docs-api.js';
 import {
   validateCookies as validateCookiesPW,
   fillFormWithPlaywright,
@@ -9,25 +9,23 @@ import type { FormData } from './wechat-docs-playwright.js';
 
 export type { FormData };
 
-// Validate cookie validity (tries API first, then Playwright)
+// Validate cookie validity
 export async function validateCookies(cookieJson: string): Promise<boolean> {
-  // Try lightweight API validation first
   const apiValid = await validateCookiesApi(cookieJson);
   if (apiValid) return true;
-
-  // Fall back to Playwright-based validation
   return validateCookiesPW(cookieJson);
 }
 
-// Fill and submit the form
-// Primary: Playwright (more reliable for complex UIs)
-// Can switch to API-first by changing the order
+// Submit form: API-first, Playwright fallback
 export async function submitForm(
   cookieJson: string,
   data: FormData
 ): Promise<{ success: boolean; error?: string; errorStep?: string; screenshot?: Buffer }> {
-  // Use Playwright by default since API endpoints are unknown
-  // After API discovery, try API first and fall back to Playwright
-  const result = await fillFormWithPlaywright(cookieJson, data);
-  return result;
+  // Primary: direct HTTP API call (fast, reliable, no browser needed)
+  const apiResult = await submitFormViaApi(cookieJson, data);
+  if (apiResult.success) return { success: true };
+
+  // Fallback: Playwright browser-based submission
+  console.log('API submit failed, falling back to Playwright:', apiResult.error);
+  return fillFormWithPlaywright(cookieJson, data);
 }
