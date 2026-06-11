@@ -166,6 +166,14 @@ async function handleMessage(sb: SupabaseClient, token: string, baseUrl: string,
     }
 
     try {
+      const today = todayCST();
+      // Save current latest log id so we can detect the new one
+      const { data: prevLog } = await sb.from('checkin_logs').select('id')
+        .eq('checkin_date', today)
+        .order('created_at', { ascending: false })
+        .limit(1).maybeSingle();
+      const prevId = prevLog?.id || '';
+
       // Trigger GitHub Actions workflow
       const resp = await fetch(
         'https://api.github.com/repos/Abraham-wy/dailycheckin/actions/workflows/daily-checkin.yml/dispatches',
@@ -182,23 +190,16 @@ async function handleMessage(sb: SupabaseClient, token: string, baseUrl: string,
       );
 
       if (resp.status === 204) {
-        await sendMessage(token, userId, '打卡已触发，正在等待结果（最多等待 3 分钟）…', contextToken, baseUrl);
-
-        // Poll for result
-        const startTime = Date.now();
-        const timeout = 3 * 60 * 1000; // 3 minutes
-        const today = todayCST();
+        // Poll every 10s, max 90s
         let result: any = null;
-
-        while (Date.now() - startTime < timeout) {
-          await new Promise(r => setTimeout(r, 15000)); // Wait 15s
+        for (let i = 0; i < 9; i++) {
+          await new Promise(r => setTimeout(r, 10000));
           const { data: log } = await sb.from('checkin_logs').select('*')
             .eq('checkin_date', today)
             .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
+            .limit(1).maybeSingle();
 
-          if (log && log.created_at && new Date(log.created_at).getTime() > startTime) {
+          if (log && log.id !== prevId && log.status !== 'pending') {
             result = log;
             break;
           }
@@ -211,7 +212,7 @@ async function handleMessage(sb: SupabaseClient, token: string, baseUrl: string,
             await sendMessage(token, userId, `即时打卡失败 ✗\n错误: ${result.error_message}\n步骤: ${result.error_step}`, contextToken, baseUrl);
           }
         } else {
-          await sendMessage(token, userId, '打卡超时（3分钟），请稍后发送"今日打卡结果"查询', contextToken, baseUrl);
+          await sendMessage(token, userId, '打卡超时，请稍后发送"今日打卡结果"查询', contextToken, baseUrl);
         }
       } else {
         const text = await resp.text();
