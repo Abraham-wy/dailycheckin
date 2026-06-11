@@ -4,6 +4,17 @@
 
 每日自动打卡系统：通过 GitHub Actions 在 22:30-23:50 CST 自动填写腾讯文档智能表格（俯卧撑、睡觉时间、今日任务、明日计划）。微信 Bot 部署在 Railway 上 24/7 运行，处理用户命令和定时提醒推送。
 
+## 本地敏感文件（gitignored，不上传 GitHub）
+
+| 文件 | 内容 |
+|------|------|
+| `.env` | AES_KEY, ENCRYPTED_COOKIES, SUPABASE 三件套 |
+| `cookies*.json` | 明文 Cookie |
+| `docs/local/API-REFERENCE.md` | 所有 API + **真实凭据** |
+| `docs/local/COOKIE-RENEWAL.md` | Cookie 续期步骤 |
+
+**⚠️ 永远不要把以上文件提交到 Git。**
+
 ## 架构
 
 ```
@@ -90,7 +101,7 @@ Day N 23:55 → Bot 推送今日打卡结果
 检查 `SUPABASE_SERVICE_KEY` 是否含多余换行符（Railway Variables 中删除重粘）
 
 ### Cookie 过期
-参考 `docs/COOKIE-RENEWAL.md`
+参考 `docs/local/COOKIE-RENEWAL.md`（本地版，含具体命令和路径）
 
 ### Playwright 后备方案
 当前主方案是直接 HTTP API（`submitformview`）。如果 API 不可用，会自动回退 Playwright。Playwright 选择器：`.text-editor[contenteditable="true"]`（表单字段）、`button:has-text("提交")`（提交按钮）
@@ -111,8 +122,15 @@ Day N 23:55 → Bot 推送今日打卡结果
 
 ## 项目专属凭据位置
 
-- Supabase: https://ubvbhyaldkkxpqjlonap.supabase.co
-- Railway: dailycheckin 项目
-- GitHub: Abraham-wy/dailycheckin
-- Bot token: `~/.claude/channels/wechat/default/account.json`
-- 腾讯文档 URL: `https://doc.weixin.qq.com/smartsheet/s3_Af8ABwbxAJcCNyvQQUKfMTAe6Mal0`
+| 服务 | 凭据在哪 |
+|------|---------|
+| Supabase | `docs/local/API-REFERENCE.md` |
+| Railway | `docs/local/API-REFERENCE.md` |
+| iLink Bot | `~/.claude/channels/wechat/default/account.json` |
+| GitHub | `gh auth token`；`docs/local/API-REFERENCE.md` |
+| WeChat Docs Cookie | `.env`（加密）；`docs/local/API-REFERENCE.md` |
+
+公开信息：
+- Supabase: `https://ubvbhyaldkkxpqjlonap.supabase.co`
+- GitHub: `Abraham-wy/dailycheckin`
+- 腾讯文档: `https://doc.weixin.qq.com/smartsheet/s3_Af8ABwbxAJcCNyvQQUKfMTAe6Mal0`

@@ -11,3 +11,4 @@ bot/node_modules/
 .claude/scheduled_tasks.lock
 *.png
 submit-api.json
+docs/local/
