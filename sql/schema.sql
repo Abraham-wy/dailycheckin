@@ -61,4 +61,34 @@ CREATE POLICY "anon_update_plans" ON daily_plans FOR UPDATE TO anon USING (true)
 CREATE POLICY "anon_select_checkin" ON checkin_logs FOR SELECT TO anon USING (true);
 CREATE POLICY "anon_insert_checkin" ON checkin_logs FOR INSERT TO anon WITH CHECK (true);
 
+-- Table: bot_users
+-- Tracks known WeChat users for proactive notifications
+CREATE TABLE IF NOT EXISTS bot_users (
+    id          UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id     TEXT NOT NULL UNIQUE,
+    last_seen   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_bot_users_id ON bot_users(user_id);
+
+-- Table: pending_notifications
+-- Stores notifications to deliver on next user interaction
+CREATE TABLE IF NOT EXISTS pending_notifications (
+    id          UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id     TEXT NOT NULL,
+    content     TEXT NOT NULL,
+    delivered   BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_pending_user ON pending_notifications(user_id, delivered);
+
+-- RLS
+ALTER TABLE bot_users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pending_notifications ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "anon_all_bot_users" ON bot_users FOR ALL TO anon USING (true);
+CREATE POLICY "anon_all_pending" ON pending_notifications FOR ALL TO anon USING (true);
+
 CREATE POLICY "anon_all_reminders" ON reminder_logs FOR ALL TO anon USING (true);
