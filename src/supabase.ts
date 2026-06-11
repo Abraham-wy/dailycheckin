@@ -1,5 +1,11 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import type { DailyPlan, CheckinLog } from './types.js';
+import WebSocket from 'ws';
+
+// Polyfill WebSocket for Node.js < 22
+if (typeof globalThis.WebSocket === 'undefined') {
+  (globalThis as Record<string, unknown>).WebSocket = WebSocket;
+}
 
 let client: SupabaseClient | null = null;
 
