@@ -232,6 +232,14 @@ async function runCron(sb: SupabaseClient) {
 // ================================================================
 
 async function main() {
+  // Debug: show all env var keys (not values)
+  console.log('[DEBUG] Env keys:', Object.keys(process.env).filter(k =>
+    k.includes('BOT') || k.includes('SUPABASE') || k.includes('RAILWAY')
+  ).join(', '));
+  console.log('[DEBUG] BOT_TOKEN present:', !!process.env.BOT_TOKEN);
+  console.log('[DEBUG] SUPABASE_URL present:', !!process.env.SUPABASE_URL);
+  console.log('[DEBUG] SUPABASE_SERVICE_KEY present:', !!process.env.SUPABASE_SERVICE_KEY);
+
   const token = process.env.BOT_TOKEN;
   const baseUrl = process.env.BOT_BASE_URL || DEFAULT_BASE_URL;
   if (!token) { console.error('Missing BOT_TOKEN'); process.exit(1); }
