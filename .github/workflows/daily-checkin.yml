@@ -2,9 +2,8 @@ name: Daily Check-in
 
 on:
   schedule:
-    # Random time between 22:30-23:50 CST (14:30-15:50 UTC)
-    # CRON_HOUR and CRON_MINUTE are set as repository secrets during setup
-    - cron: '${{ secrets.CRON_MINUTE }} ${{ secrets.CRON_HOUR }} * * *'
+    # 22:43 CST = 14:43 UTC (randomized during setup, window 22:30-23:50 CST)
+    - cron: '43 14 * * *'
   workflow_dispatch:
     inputs:
       dry_run:
