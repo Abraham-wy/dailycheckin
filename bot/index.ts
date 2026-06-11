@@ -145,8 +145,11 @@ async function handleMessage(sb: SupabaseClient, token: string, baseUrl: string,
   const histMatch = cmd.match(/^(?:历史记录|历史)\s*(\d+)?$/);
   if (histMatch) {
     const n = parseInt(histMatch[1] || '7');
-    const { data: logs } = await sb.from('checkin_logs').select('*').order('checkin_date', { ascending: false }).limit(n);
-    if (!logs || logs.length === 0) {
+    const { data: logs, error: histErr } = await sb.from('checkin_logs').select('*').order('checkin_date', { ascending: false }).limit(n);
+    console.log('[HIST] Query result:', { count: logs?.length, error: histErr?.message, first: logs?.[0]?.checkin_date });
+    if (histErr) {
+      await sendMessage(token, userId, `查询出错: ${histErr.message}`, contextToken, baseUrl);
+    } else if (!logs || logs.length === 0) {
       await sendMessage(token, userId, '暂无打卡记录', contextToken, baseUrl);
     } else {
       const lines = logs.map((l: any) =>
@@ -325,6 +328,10 @@ async function main() {
   console.log(`[BOOT] Base URL: ${baseUrl}`);
 
   const sb = getSupabase();
+
+  // Startup: verify DB connectivity
+  const { data: testLogs, error: testErr } = await sb.from('checkin_logs').select('id').limit(1);
+  console.log('[BOOT] DB check:', { found: testLogs?.length, error: testErr?.message || 'none' });
 
   // Express health server
   const app = express();
