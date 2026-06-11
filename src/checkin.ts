@@ -10,7 +10,6 @@ import {
   getSupabaseClient,
   getLatestPlan,
   getPlan,
-  getCheckin,
   insertCheckin,
 } from './supabase.js';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -23,14 +22,7 @@ export async function runCheckin(config: CheckinConfig): Promise<void> {
 
   console.log(`[${new Date().toISOString()}] Starting check-in for ${today}`);
 
-  // 1. Idempotency check
-  const existing = await getCheckin(supabase, today);
-  if (existing) {
-    console.log(`Already checked in for ${today}, exiting.`);
-    return;
-  }
-
-  // 2. Decrypt cookies
+  // 1. Decrypt cookies and generate form data
   let cookieJson: string;
   try {
     cookieJson = decryptCookies(config.encryptedCookies, config.aesKey);

@@ -30,10 +30,7 @@ CREATE TABLE IF NOT EXISTS checkin_logs (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_one_success_per_day
-    ON checkin_logs(checkin_date)
-    WHERE status = 'success';
-
+-- Note: Duplicate check-ins allowed. No unique index on (checkin_date, success).
 CREATE INDEX IF NOT EXISTS idx_checkin_date ON checkin_logs(checkin_date DESC);
 
 -- Table: reminder_logs

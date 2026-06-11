@@ -170,15 +170,6 @@ async function handleMessage(sb: SupabaseClient, token: string, baseUrl: string,
     try {
       const today = todayCST();
 
-      // Check if already succeeded today
-      const { data: existingRows } = await sb.from('checkin_logs').select('*')
-        .eq('checkin_date', today).eq('status', 'success').limit(1);
-      const existing = existingRows?.[0] || null;
-      if (existing) {
-        await sendMessage(token, userId, `今日已打卡成功，无需重复打卡 ✓\n俯卧撑: ${existing.pushups}\n睡觉: ${existing.sleep_time}\n今日任务: ${existing.task_completion || '无'}\n明日计划: ${existing.tomorrow_plan || '无'}`, contextToken, baseUrl);
-        return;
-      }
-
       await sendMessage(token, userId, '正在触发打卡…', contextToken, baseUrl);
 
       // Save current latest log id so we detect the new one
