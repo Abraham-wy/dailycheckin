@@ -1,0 +1,8 @@
+[build]
+  root = "bot/"
+
+[deploy]
+  startCommand = "npm start"
+
+[service]
+  port = 8080
