@@ -7,20 +7,22 @@
   "scripts": {
     "checkin": "npx tsx src/index.ts",
     "test-checkin": "npx tsx tools/test-checkin.ts",
-    "encrypt-cookie": "npx tsx tools/encrypt-cookie.ts"
+    "encrypt-cookie": "npx tsx tools/encrypt-cookie.ts",
+    "start": "npx tsx bot/index.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.4",
     "date-fns": "^4.1.0",
     "date-fns-tz": "^3.2.0",
     "dotenv": "^16.4.7",
-    "playwright": "^1.52.0",
+    "express": "^5.1.0",
+    "tsx": "^4.19.0",
     "ws": "^8.21.0"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
     "@types/ws": "^8.18.1",
-    "tsx": "^4.19.0",
+    "playwright": "^1.52.0",
     "typescript": "^5.8.0"
   }
 }
