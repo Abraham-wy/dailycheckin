@@ -157,8 +157,6 @@ async function handleMessage(sb: SupabaseClient, token: string, baseUrl: string,
 
   // ---- "立即打卡" ----
   if (/^立即打卡/.test(cmd)) {
-    await sendMessage(token, userId, '正在触发打卡…', contextToken, baseUrl);
-
     const ghToken = process.env.GITHUB_TOKEN;
     if (!ghToken) {
       await sendMessage(token, userId, '未配置 GITHUB_TOKEN，无法触发打卡', contextToken, baseUrl);
@@ -167,10 +165,20 @@ async function handleMessage(sb: SupabaseClient, token: string, baseUrl: string,
 
     try {
       const today = todayCST();
-      // Save current latest log id so we can detect the new one
+
+      // Check if already succeeded today
+      const { data: existing } = await sb.from('checkin_logs').select('*')
+        .eq('checkin_date', today).eq('status', 'success').maybeSingle();
+      if (existing) {
+        await sendMessage(token, userId, `今日已打卡成功，无需重复打卡 ✓\n俯卧撑: ${existing.pushups}\n睡觉: ${existing.sleep_time}\n今日任务: ${existing.task_completion || '无'}\n明日计划: ${existing.tomorrow_plan || '无'}`, contextToken, baseUrl);
+        return;
+      }
+
+      await sendMessage(token, userId, '正在触发打卡…', contextToken, baseUrl);
+
+      // Save current latest log id so we detect the new one
       const { data: prevLog } = await sb.from('checkin_logs').select('id')
-        .eq('checkin_date', today)
-        .order('created_at', { ascending: false })
+        .eq('checkin_date', today).order('created_at', { ascending: false })
         .limit(1).maybeSingle();
       const prevId = prevLog?.id || '';
 
@@ -195,16 +203,10 @@ async function handleMessage(sb: SupabaseClient, token: string, baseUrl: string,
         for (let i = 0; i < 9; i++) {
           await new Promise(r => setTimeout(r, 10000));
           const { data: log } = await sb.from('checkin_logs').select('*')
-            .eq('checkin_date', today)
-            .order('created_at', { ascending: false })
+            .eq('checkin_date', today).order('created_at', { ascending: false })
             .limit(1).maybeSingle();
-
-          if (log && log.id !== prevId && log.status !== 'pending') {
-            result = log;
-            break;
-          }
+          if (log && log.id !== prevId && log.status !== 'pending') { result = log; break; }
         }
-
         if (result) {
           if (result.status === 'success') {
             await sendMessage(token, userId, `即时打卡成功 ✓\n俯卧撑: ${result.pushups}\n睡觉: ${result.sleep_time}\n今日任务: ${result.task_completion || '无'}\n明日计划: ${result.tomorrow_plan || '无'}`, contextToken, baseUrl);
