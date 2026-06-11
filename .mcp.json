@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "wechat-channel": {
+      "command": "/opt/homebrew/opt/node@22/bin/npx",
+      "args": ["-y", "cc-wechat@latest"]
+    }
+  }
+}
