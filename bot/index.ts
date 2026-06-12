@@ -165,7 +165,7 @@ async function handleMessage(sb: SupabaseClient, token: string, baseUrl: string,
   const histMatch = cmd.match(/^(?:历史记录|历史)\s*(\d+)?$/);
   if (histMatch) {
     const n = Math.min(parseInt(histMatch[1] || '7'), 15);
-    const { data: logs, error: histErr } = await sb.from('checkin_logs').select('*').order('checkin_date', { ascending: false }).limit(n);
+    const { data: logs, error: histErr } = await sb.from('checkin_logs').select('*').order('created_at', { ascending: false }).limit(n * 5);
     console.log('[HIST] Query result:', { count: logs?.length, error: histErr?.message, first: logs?.[0]?.checkin_date });
     if (histErr) {
       await sendMessage(token, userId, `查询出错: ${histErr.message}`, contextToken, baseUrl);
