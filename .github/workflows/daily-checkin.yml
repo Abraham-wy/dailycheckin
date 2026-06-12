@@ -2,7 +2,7 @@ name: Daily Check-in
 
 on:
   schedule:
-    # 22:43 CST = 14:43 UTC (randomized during setup, window 22:30-23:50 CST)
+    # 22:43 CST = 14:43 UTC. Backup: Railway Bot also triggers at 22:43.
     - cron: '43 14 * * *'
   workflow_dispatch:
     inputs:

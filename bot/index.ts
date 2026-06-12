@@ -15,6 +15,7 @@ import express from 'express';
 
 const DEFAULT_BASE_URL = 'https://ilinkai.weixin.qq.com';
 const LONG_POLL_MS = 35_000;
+const MAX_MSG_LEN = 800; // iLink message text limit
 
 function buildBaseInfo() { return { channel_version: '0.1.0' }; }
 
@@ -59,6 +60,11 @@ async function getUpdates(token: string, buf: string, baseUrl: string) {
 }
 
 async function sendMessage(token: string, to: string, text: string, contextToken: string, baseUrl: string) {
+  // Truncate if too long
+  if (text.length > MAX_MSG_LEN) {
+    text = text.slice(0, MAX_MSG_LEN - 20) + '…\n(内容过长已截断)';
+  }
+
   const clientId = `dbot-${randomBytes(4).toString('hex')}`;
   const msg: any = {
     from_user_id: '', to_user_id: to, client_id: clientId,
@@ -90,6 +96,17 @@ const yesterdayCST = () => format(subDays(toZonedTime(new Date(), TZ), 1), 'yyyy
 const timeCST = () => format(toZonedTime(new Date(), TZ), 'HH:mm');
 
 // ================================================================
+// Active user cache — used by cron to push directly
+// ================================================================
+
+let activeUser: { userId: string; contextToken: string } | null = null;
+
+function updateActiveUser(userId: string, contextToken: string) {
+  activeUser = { userId, contextToken };
+  console.log(`[USER] Active user cached: ${userId}`);
+}
+
+// ================================================================
 // Message handler
 // ================================================================
 
@@ -103,10 +120,13 @@ async function handleMessage(sb: SupabaseClient, token: string, baseUrl: string,
   const cmd = text.trim();
   console.log(`[MSG] ${userId}: ${cmd.slice(0, 120)}`);
 
-  // Track user
+  // Cache active user context for cron push
+  updateActiveUser(userId, contextToken);
+
+  // Track user in DB
   await sb.from('bot_users').upsert({ user_id: userId, last_seen: new Date().toISOString() });
 
-  // Deliver pending notifications first
+  // Deliver pending notifications
   await deliverPending(sb, token, baseUrl, userId, contextToken);
 
   // ---- "明日计划 <content>" ----
@@ -144,7 +164,7 @@ async function handleMessage(sb: SupabaseClient, token: string, baseUrl: string,
   // ---- "历史记录 [N]" ----
   const histMatch = cmd.match(/^(?:历史记录|历史)\s*(\d+)?$/);
   if (histMatch) {
-    const n = parseInt(histMatch[1] || '7');
+    const n = Math.min(parseInt(histMatch[1] || '7'), 15);
     const { data: logs, error: histErr } = await sb.from('checkin_logs').select('*').order('checkin_date', { ascending: false }).limit(n);
     console.log('[HIST] Query result:', { count: logs?.length, error: histErr?.message, first: logs?.[0]?.checkin_date });
     if (histErr) {
@@ -152,9 +172,20 @@ async function handleMessage(sb: SupabaseClient, token: string, baseUrl: string,
     } else if (!logs || logs.length === 0) {
       await sendMessage(token, userId, '暂无打卡记录', contextToken, baseUrl);
     } else {
-      const lines = logs.map((l: any) =>
+      // Deduplicate by checkin_date (take latest status per date)
+      const seen = new Set<string>();
+      const unique: any[] = [];
+      for (const l of logs) {
+        if (!seen.has(l.checkin_date)) {
+          seen.add(l.checkin_date);
+          unique.push(l);
+        }
+      }
+      const lines = unique.map((l: any) =>
         `${l.checkin_date} ${l.status === 'success' ? '✓' : '✗'} | 俯卧撑:${l.pushups ?? '-'} | 睡觉:${l.sleep_time ?? '-'}`);
-      await sendMessage(token, userId, `最近 ${logs.length} 天：\n${lines.join('\n')}`, contextToken, baseUrl);
+      const msg = `最近 ${unique.length} 天：\n${lines.join('\n')}`;
+      console.log('[HIST] Sending message, length:', msg.length);
+      await sendMessage(token, userId, msg, contextToken, baseUrl);
     }
     return;
   }
@@ -169,15 +200,12 @@ async function handleMessage(sb: SupabaseClient, token: string, baseUrl: string,
 
     try {
       const today = todayCST();
-
       await sendMessage(token, userId, '正在触发打卡…', contextToken, baseUrl);
 
-      // Save current latest log id so we detect the new one
       const { data: prevRows } = await sb.from('checkin_logs').select('id')
         .eq('checkin_date', today).order('created_at', { ascending: false }).limit(1);
       const prevId = prevRows?.[0]?.id || '';
 
-      // Trigger GitHub Actions workflow
       const resp = await fetch(
         'https://api.github.com/repos/Abraham-wy/dailycheckin/actions/workflows/daily-checkin.yml/dispatches',
         {
@@ -193,7 +221,6 @@ async function handleMessage(sb: SupabaseClient, token: string, baseUrl: string,
       );
 
       if (resp.status === 204) {
-        // Poll every 10s, max 90s
         let result: any = null;
         for (let i = 0; i < 9; i++) {
           await new Promise(r => setTimeout(r, 10000));
@@ -247,24 +274,64 @@ async function deliverPending(sb: SupabaseClient, token: string, baseUrl: string
 }
 
 // ================================================================
+// Direct push helper — uses cached active user for cron delivery
+// ================================================================
+
+async function pushToActiveUser(token: string, baseUrl: string, sb: SupabaseClient, content: string) {
+  if (activeUser?.userId && activeUser?.contextToken) {
+    try {
+      await sendMessage(token, activeUser.userId, content, activeUser.contextToken, baseUrl);
+      console.log(`[PUSH] Sent to ${activeUser.userId}: ${content.slice(0, 50)}`);
+      return true;
+    } catch (err) {
+      console.error('[PUSH] Direct send failed:', err);
+    }
+  }
+
+  // Fallback: queue as pending notification
+  const { data: users } = await sb.from('bot_users').select('user_id');
+  if (users) {
+    for (const u of users) {
+      await sb.from('pending_notifications').insert({ user_id: u.user_id, content });
+    }
+    console.log(`[PUSH] Queued for ${users.length} users (no active contextToken)`);
+  }
+  return false;
+}
+
+// ================================================================
 // Cron tasks
 // ================================================================
 
-async function pushToAllUsers(sb: SupabaseClient, content: string) {
-  const { data: users } = await sb.from('bot_users').select('user_id');
-  if (!users) return;
-  for (const u of users) {
-    await sb.from('pending_notifications').insert({ user_id: u.user_id, content });
+async function triggerCheckinViaGitHub(ghToken: string) {
+  try {
+    const resp = await fetch(
+      'https://api.github.com/repos/Abraham-wy/dailycheckin/actions/workflows/daily-checkin.yml/dispatches',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${ghToken}`,
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ ref: 'main', inputs: { dry_run: false } }),
+      }
+    );
+    console.log('[CRON] GitHub trigger status:', resp.status);
+    return resp.status === 204;
+  } catch (err) {
+    console.error('[CRON] GitHub trigger error:', err);
+    return false;
   }
-  console.log(`[PUSH] Queued notification for ${users.length} users`);
 }
 
-async function runCron(sb: SupabaseClient) {
+async function runCron(sb: SupabaseClient, token: string, baseUrl: string) {
   const now = timeCST();
   const today = todayCST();
   const tomorrow = tomorrowCST();
 
-  // 21:00-21:10 CST: Check if tomorrow's plan exists, queue reminder
+  // 21:00-21:10 CST: Check tomorrow's plan, push reminder
   if (now >= '21:00' && now <= '21:10') {
     const { data: remRows } = await sb.from('reminder_logs').select('*').eq('reminder_date', today).limit(1);
     if (!remRows || remRows.length === 0) {
@@ -273,13 +340,30 @@ async function runCron(sb: SupabaseClient) {
       const planSet = !!(plan && plan.content);
       await sb.from('reminder_logs').upsert({ reminder_date: today, plan_was_set: planSet, sent_at: new Date().toISOString() });
       if (!planSet) {
-        await pushToAllUsers(sb, '【每日打卡提醒】请在 23:00 前填写明日计划。直接回复 "明日计划 <内容>"');
+        await pushToActiveUser(token, baseUrl, sb, '【每日打卡提醒】请在 23:00 前填写明日计划。直接回复 "明日计划 <内容>"');
       }
-      console.log(`[CRON] 21:00 reminder: plan_set=${planSet}`);
+      console.log(`[CRON] 21:00 reminder: plan_set=${planSet}, pushed=${!planSet}`);
     }
   }
 
-  // 23:55-23:59 CST: Check check-in result, push to users
+  // 22:43-22:50 CST: Trigger check-in via GitHub API (Bot as primary scheduler)
+  if (now >= '22:43' && now <= '22:50') {
+    const { data: triggerRows } = await sb.from('reminder_logs').select('*').eq('reminder_date', `${today}-bot-trigger`).limit(1);
+    if (!triggerRows || triggerRows.length === 0) {
+      const ghToken = process.env.GITHUB_TOKEN;
+      if (ghToken) {
+        const ok = await triggerCheckinViaGitHub(ghToken);
+        await sb.from('reminder_logs').upsert({
+          reminder_date: `${today}-bot-trigger`,
+          plan_was_set: ok,
+          sent_at: new Date().toISOString(),
+        });
+        console.log(`[CRON] 22:43 bot-trigger: ${ok ? 'OK' : 'FAILED'}`);
+      }
+    }
+  }
+
+  // 23:55-23:59 CST: Check result, push to active user directly
   if (now >= '23:55' && now <= '23:59') {
     const { data: notifRows } = await sb.from('pending_notifications').select('*').like('content', '%今日打卡%').eq('delivered', false).gte('created_at', today).limit(1);
     if (!notifRows || notifRows.length === 0) {
@@ -287,9 +371,9 @@ async function runCron(sb: SupabaseClient) {
       const log = checkRows?.[0] || null;
       if (log) {
         if (log.status === 'success') {
-          await pushToAllUsers(sb, `今日打卡成功 ✓ | 俯卧撑:${log.pushups} | 睡觉:${log.sleep_time} | 今日任务:${log.task_completion || '无'} | 明日计划:${log.tomorrow_plan || '无'}`);
+          await pushToActiveUser(token, baseUrl, sb, `今日打卡成功 ✓ | 俯卧撑:${log.pushups} | 睡觉:${log.sleep_time} | 今日任务:${log.task_completion || '无'} | 明日计划:${log.tomorrow_plan || '无'}`);
         } else {
-          await pushToAllUsers(sb, `今日打卡失败 ✗ | ${log.error_message} | 回复"刷新Cookie"获取帮助`);
+          await pushToActiveUser(token, baseUrl, sb, `今日打卡失败 ✗ | ${log.error_message} | 回复"刷新Cookie"获取帮助`);
         }
       }
       console.log(`[CRON] 23:55 result: ${log?.status || 'no result'}`);
@@ -302,7 +386,6 @@ async function runCron(sb: SupabaseClient) {
 // ================================================================
 
 async function main() {
-  // Debug: show all env var keys (not values)
   console.log('[DEBUG] Env keys:', Object.keys(process.env).filter(k =>
     k.includes('BOT') || k.includes('SUPABASE') || k.includes('RAILWAY')
   ).join(', '));
@@ -320,18 +403,16 @@ async function main() {
 
   const sb = getSupabase();
 
-  // Startup: verify DB connectivity
   const { data: testLogs, error: testErr } = await sb.from('checkin_logs').select('id').limit(1);
   console.log('[BOOT] DB check:', { found: testLogs?.length, error: testErr?.message || 'none' });
 
-  // Express health server
   const app = express();
   const PORT = parseInt(process.env.PORT || '8080');
   app.get('/', (_req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
   app.listen(PORT, () => console.log(`[HTTP] :${PORT}`));
 
   // Cron every 5 minutes
-  setInterval(() => runCron(sb).catch(e => console.error('[CRON]', e)), 5 * 60_000);
+  setInterval(() => runCron(sb, token, baseUrl).catch(e => console.error('[CRON]', e)), 5 * 60_000);
 
   // Message poll loop
   let buf = '';
