@@ -331,8 +331,8 @@ async function runCron(sb: SupabaseClient, token: string, baseUrl: string) {
   const today = todayCST();
   const tomorrow = tomorrowCST();
 
-  // TEST: 02:08-02:10 CST (normal: 21:00-21:10)
-  if (now >= '02:00' && now <= '02:03') {
+  // 21:00-21:10 CST: Check tomorrow's plan, push reminder
+  if (now >= '21:00' && now <= '21:10') {
     const { data: remRows } = await sb.from('reminder_logs').select('*').eq('reminder_date', today).limit(1);
     if (!remRows || remRows.length === 0) {
       const { data: planRows } = await sb.from('daily_plans').select('*').eq('plan_date', tomorrow).limit(1);
@@ -346,25 +346,22 @@ async function runCron(sb: SupabaseClient, token: string, baseUrl: string) {
     }
   }
 
-  // TEST: 02:08-02:10 CST (normal: 22:43-22:50)
-  if (now >= '02:00' && now <= '02:03') {
-    const { data: triggerRows } = await sb.from('reminder_logs').select('*').eq('reminder_date', `${today}-bot-trigger`).limit(1);
-    if (!triggerRows || triggerRows.length === 0) {
+  // 22:43-22:50 CST: Trigger check-in via GitHub API (Bot as primary scheduler)
+  if (now >= '22:43' && now <= '22:50') {
+    // Guard: check if already triggered today via pending_notifications table
+    const { data: guardRows } = await sb.from('pending_notifications').select('*').eq('user_id', 'bot-trigger').eq('content', today).limit(1);
+    if (!guardRows || guardRows.length === 0) {
       const ghToken = process.env.GITHUB_TOKEN;
       if (ghToken) {
         const ok = await triggerCheckinViaGitHub(ghToken);
-        await sb.from('reminder_logs').upsert({
-          reminder_date: `${today}-bot-trigger`,
-          plan_was_set: ok,
-          sent_at: new Date().toISOString(),
-        });
+        await sb.from('pending_notifications').insert({ user_id: 'bot-trigger', content: today, delivered: true });
         console.log(`[CRON] 22:43 bot-trigger: ${ok ? 'OK' : 'FAILED'}`);
       }
     }
   }
 
-  // TEST: 02:08-02:12 CST (normal: 23:55-23:59)
-  if (now >= '02:05' && now <= '02:10') {
+  // 23:55-23:59 CST: Check result, push to active user directly
+  if (now >= '23:55' && now <= '23:59') {
     const { data: notifRows } = await sb.from('pending_notifications').select('*').like('content', '%今日打卡%').eq('delivered', false).gte('created_at', today).limit(1);
     if (!notifRows || notifRows.length === 0) {
       const { data: checkRows } = await sb.from('checkin_logs').select('*').eq('checkin_date', today).order('created_at', { ascending: false }).limit(1);
