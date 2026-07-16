@@ -2,6 +2,7 @@
 // Uses the submitformview REST API — much more reliable than Playwright DOM interaction
 
 import type { WeChatDocCookies } from './types.js';
+import { todayCST } from './date.js';
 
 interface FormData {
   pushups: number;
@@ -48,6 +49,12 @@ function buildCellStr(text: string): string {
   ]);
 }
 
+function buildDateTimeCellStr(dateStr: string): string {
+  // dateStr is "2026-07-13 23:26" format (yyyy-mm-dd hh:mm), convert to timestamp
+  const d = new Date(dateStr.replace(' ', 'T') + ':00');
+  return String(d.getTime());
+}
+
 // Submit the form via direct API call
 export async function submitFormViaApi(
   cookieJson: string,
@@ -63,11 +70,14 @@ export async function submitFormViaApi(
 
     const url = `${SUBMIT_URL}?sid=${encodeURIComponent(sid)}&wedoc_xsrf=1&xsrf=${encodeURIComponent(xsrf)}`;
 
+    const today = todayCST();
+    const sleepDateTime = `${today} ${data.sleepTime}`;
+
     const body = JSON.stringify({
       answer: {
         record: [
           { fieldId: FIELD_PUSHUP, cellStr: buildCellStr(String(data.pushups)), fieldType: 1 },
-          { fieldId: FIELD_SLEEP, cellStr: buildCellStr(data.sleepTime), fieldType: 1 },
+          { fieldId: FIELD_SLEEP, cellStr: buildDateTimeCellStr(sleepDateTime), fieldType: 4 },
           { fieldId: FIELD_TASK, cellStr: buildCellStr(data.taskCompletion), fieldType: 1 },
           { fieldId: FIELD_PLAN, cellStr: buildCellStr(data.tomorrowPlan), fieldType: 1 },
         ],
@@ -91,6 +101,9 @@ export async function submitFormViaApi(
     if (resp.ok) {
       const result = await resp.json().catch(() => ({}));
       console.log('API submit response:', JSON.stringify(result).slice(0, 200));
+      if (result?.head?.ret !== 0) {
+        return { success: false, error: `API error ret=${result?.head?.ret}: ${result?.head?.msg || 'unknown'}` };
+      }
       return { success: true };
     }
 
