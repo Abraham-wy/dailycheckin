@@ -3,7 +3,7 @@
 import type { CheckinConfig } from './types.js';
 import { decryptCookies } from './crypto.js';
 import { todayCST, tomorrowCST } from './date.js';
-import { randomPushups, randomSleepTime } from './random.js';
+import { randomPushups } from './random.js';
 import { withRetry } from './retry.js';
 import { submitForm, type FormData } from './wechat-docs.js';
 import {
@@ -43,23 +43,16 @@ export async function runCheckin(config: CheckinConfig): Promise<void> {
     process.exit(1);
   }
 
-  // 3. Get plans
-  // Today's task completion = the plan that was written for today (i.e., yesterday's "明日计划")
-  const todayPlan = await getPlan(supabase, today);
-  const taskCompletion = todayPlan?.content || '';
-
-  // Tomorrow's plan = plan explicitly set for tomorrow
+  // 3. Get tomorrow's plan
   const tomorrowPlan = await getPlan(supabase, tomorrow);
 
   let tomorrowPlanContent: string;
   let planSource: 'manual' | 'carried_forward';
 
   if (tomorrowPlan && tomorrowPlan.content) {
-    // User already filled in tomorrow's plan via WeChat
     tomorrowPlanContent = tomorrowPlan.content;
     planSource = 'manual';
   } else {
-    // User forgot — carry forward from latest plan
     const latestPlan = await getLatestPlan(supabase, today);
     tomorrowPlanContent = latestPlan?.content || '';
     planSource = 'carried_forward';
@@ -70,19 +63,14 @@ export async function runCheckin(config: CheckinConfig): Promise<void> {
 
   // 4. Generate auto values
   const pushups = randomPushups();
-  const sleepTime = randomSleepTime();
 
   const formData: FormData = {
     pushups,
-    sleepTime,
-    taskCompletion: taskCompletion || '无昨日计划记录',
     tomorrowPlan: tomorrowPlanContent,
   };
 
   console.log('Form data:', {
     pushups,
-    sleepTime,
-    taskCompletion: taskCompletion || '(empty)',
     tomorrowPlan: tomorrowPlanContent || '(empty)',
     planSource,
   });
@@ -129,8 +117,8 @@ export async function runCheckin(config: CheckinConfig): Promise<void> {
   await insertCheckin(supabase, {
     checkin_date: today,
     pushups: success ? pushups : null,
-    sleep_time: success ? sleepTime : null,
-    task_completion: success ? formData.taskCompletion : null,
+    sleep_time: null,
+    task_completion: null,
     tomorrow_plan: success ? formData.tomorrowPlan : null,
     status: success ? 'success' : 'failed',
     attempt_count: attempts,

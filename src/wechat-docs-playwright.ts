@@ -9,8 +9,6 @@ const FORM_URL =
 
 export interface FormData {
   pushups: number;
-  sleepTime: string;
-  taskCompletion: string;
   tomorrowPlan: string;
 }
 
@@ -64,24 +62,22 @@ export async function fillFormWithPlaywright(
     const editors = page.locator('.text-editor[contenteditable="true"]');
     const fieldCount = await editors.count();
 
-    if (fieldCount < 4) {
+    if (fieldCount < 2) {
       return {
         success: false,
-        error: `Expected 4 form fields, found ${fieldCount}`,
+        error: `Expected 2 form fields, found ${fieldCount}`,
         errorStep: 'fill',
       };
     }
 
-    // Fill the 4 fields in order: 俯卧撑, 开始睡觉时间, 今日任务完成情况, 明日计划
+    // Fill the 2 fields in order: 俯卧撑, 明日计划
     const values = [
       String(data.pushups),
-      data.sleepTime,
-      data.taskCompletion,
       data.tomorrowPlan,
     ];
 
     // Fill: triple-click to select all existing text, then type the new value
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 2; i++) {
       const el = editors.nth(i);
       await el.click({ clickCount: 3 });
       await page.waitForTimeout(200);

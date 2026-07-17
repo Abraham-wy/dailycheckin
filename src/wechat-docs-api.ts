@@ -2,12 +2,9 @@
 // Uses the submitformview REST API — much more reliable than Playwright DOM interaction
 
 import type { WeChatDocCookies } from './types.js';
-import { todayCST } from './date.js';
 
 interface FormData {
   pushups: number;
-  sleepTime: string;
-  taskCompletion: string;
   tomorrowPlan: string;
 }
 
@@ -22,8 +19,6 @@ const VIEW_ID = 'vD00wZ';
 
 // Field IDs (from form inspection)
 const FIELD_PUSHUP = 'fzSueb';
-const FIELD_SLEEP = 'fDpQ7o';
-const FIELD_TASK = 'fp1TPo';
 const FIELD_PLAN = 'fz3vww';
 
 function toCookieHeader(cookieJson: string): string {
@@ -49,12 +44,6 @@ function buildCellStr(text: string): string {
   ]);
 }
 
-function buildDateTimeCellStr(dateStr: string): string {
-  // dateStr is "2026-07-13 23:26" format (yyyy-mm-dd hh:mm), convert to timestamp
-  const d = new Date(dateStr.replace(' ', 'T') + ':00');
-  return String(d.getTime());
-}
-
 // Submit the form via direct API call
 export async function submitFormViaApi(
   cookieJson: string,
@@ -70,15 +59,10 @@ export async function submitFormViaApi(
 
     const url = `${SUBMIT_URL}?sid=${encodeURIComponent(sid)}&wedoc_xsrf=1&xsrf=${encodeURIComponent(xsrf)}`;
 
-    const today = todayCST();
-    const sleepDateTime = `${today} ${data.sleepTime}`;
-
     const body = JSON.stringify({
       answer: {
         record: [
           { fieldId: FIELD_PUSHUP, cellStr: buildCellStr(String(data.pushups)), fieldType: 1 },
-          { fieldId: FIELD_SLEEP, cellStr: buildDateTimeCellStr(sleepDateTime), fieldType: 4 },
-          { fieldId: FIELD_TASK, cellStr: buildCellStr(data.taskCompletion), fieldType: 1 },
           { fieldId: FIELD_PLAN, cellStr: buildCellStr(data.tomorrowPlan), fieldType: 1 },
         ],
       },
